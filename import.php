@@ -314,22 +314,22 @@ class FasardiXmlImport
 
 
 		foreach ($offers as $offer) {
-echo '<pre>';var_dump($offer);exit();
+
 
 
 			// Basic properties
 			$product = array(
-				'id'       => $offer->id,
-				'name'     => $offer->name,
-				'url'      => $offer->url,
-				'desc'     => $offer->desc,
-				'cat'      => $offer->cat,
-				'price'    => (float)$offer->price,
-				'oldprice' => (float)$offer->oldprice,
+				'id'       => $offer->getElementsByTagName('id')->item(0)->nodeValue,
+				'name'     => $offer->getElementsByTagName('name')->item(0)->nodeValue,
+				'url'      => $offer->getElementsByTagName('url')->item(0)->nodeValue,
+				'desc'     => $offer->getElementsByTagName('desc')->item(0)->nodeValue,
+				'cat'      => $offer->getElementsByTagName('cat')->item(0)->nodeValue,
+				'price'    => (float)$offer->getElementsByTagName('price')->item(0)->nodeValue,
+				'oldprice' => (float)$offer->getElementsByTagName('oldprice')->item(0)->nodeValue,
 				'attrs'    => array(),
 				'imgs'     => array(),
 				'sizes'    => array(),
-				'promoted' => (bool)$offer->isPromoted,
+				'promoted' => (bool)$offer->getElementsByTagName('isPromoted')->item(0)->nodeValue,
 			);
 
 			// Price
@@ -342,6 +342,8 @@ echo '<pre>';var_dump($offer);exit();
 			}
 			unset($product['oldprice']);
 
+
+echo '<pre>';var_dump($offer->getElementsByTagName('attrs')->item(0)->childNodes);exit();
 			// Attributes
 			echo '<pre>';
 			//var_dump($offer->attrs);
