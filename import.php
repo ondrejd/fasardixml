@@ -16,7 +16,7 @@ include_once dirname(dirname(dirname(__FILE__))).'/config/config.inc.php';
  * Include main module's file (because of class constants).
  */
 include_once dirname(__FILE__).'/fasardixml.php';
-
+error_reporting(E_ALL|E_NOTICES);
 /**
  * Class that realizes import self.
  *
@@ -61,26 +61,79 @@ class FasardiXmlImport
 
 	/**
 	 * Create multi-language fileds filled for all used languages or only for the default one?
-	 * @var boolean $create_multi_language_fields
+	 * @var boolean $create_multilang_fields
 	 */
-	protected $create_multi_language_fields;
+	protected $create_multilang_fields;
+
+	/**
+	 * Value for onstock property for imported products.
+	 * @var int $default_onstock
+	 */
+	protected $default_onstock;
+
+	/**
+	 * TRUE if old price should be used instead of new one for imported products.
+	 * @var boolean $use_oldprice
+	 */
+	protected $use_oldprice;
+
+	/**
+	 * Preference with additional shipping cost which should be added to price of imported products.
+	 * @var float $additional_cost
+	 */
+	protected $additional_cost;
+
+	/**
+	 * TRUE if the highest price should be used.
+	 * @var boolean $use_highprice
+	 */
+	protected $use_highprice;
+
+	/**
+	 * TRUE if create combinations from same products that differ just by color.
+	 * @var boolean $use_combinations
+	 */
+	protected $use_combinations;
+
+	/**
+	 * Holds name of file in which is downloaded feed storred.
+	 * This property is filled in {@see FasardiXmlImport::download_feed}.
+	 * @since 1.0.0
+	 * @var string $feed_filename
+	 */
+	protected $feed_filename;
+
+	/**
+	 * Contents of the XML feed.
+	 * This is filled in {@see FasardiXmlImport::download_feed} or {@see FasardiXmlImport::load_feed_from_url}
+	 * @var DOMDocument $feed
+	 */
+	protected $feed;
+
+	/**
+	 * Array with products parsed from feed.
+	 * This is produced by {@see FasardiXmlImport::parse_products}.
+	 * @var array $products
+	 */
+	protected $products = array();
 
 	/**
 	 * Constructor.
 	 *
 	 * @since 1.0.0
-	 * @todo `docs_path` - get root folder (or even better docs folder) from PS. Use {@see Configuration} object?
-	 * @todo `default_category_id` - Use module's configuration!
-	 * @todo `create_multi_language_fields` - Use module's configuration!
 	 */
 	public function __construct() {
 		$this->exchange_rate = floatval(Configuration::get(Fasardixml::PREF_RATE_PLN_CZK, Fasardixml::DEFAULT_RATE_PLN_CZK));
 		$this->feed_url = Configuration::get(Fasardixml::PREF_FEED_URL, Fasardixml::DEFAULT_FEED_URL);
-		$this->docs_path = dirname(dirname(dirname(__FILE__))).'/docs/xml_import';
-		$this->default_lang_id = (int) (Configuration::get('PS_LANG_DEFAULT'));
-		$this->default_category_id = 12;
-		//$this->default_category_id = Configuration::get(Fasardixml::PREF_DEFAULT_CAT, Fasardixml::DEFAULT_PRODUCT_CAT);
-		$this->create_multi_language_fields = (bool) (Configuration::get(Fasardixml::PREF_MULTI_LANG, Fasardixml::DEFAULT_MULTI_LANG));
+		$this->docs_path = _PS_CORE_DIR_.'/docs/xml_import';
+		$this->default_lang_id = (int)Configuration::get('PS_LANG_DEFAULT');
+		$this->default_category_id = (int)Configuration::get(Fasardixml::PREF_DEFAULT_CAT, Fasardixml::DEFAULT_DEFAULT_CAT);
+		$this->create_multilang_fields = (bool)Configuration::get(Fasardixml::PREF_MULTI_LANG, Fasardixml::DEFAULT_MULTI_LANG);
+		$this->default_onstock = (int)Configuration::get(Fasardixml::PREF_DEFAULT_ONSTOCK, Fasardixml::DEFAULT_DEFAULT_ONSTOCK);
+		$this->use_oldprice = (bool)Configuration::get(Fasardixml::PREF_USE_OLDPRICE, Fasardixml::DEFAULT_USE_OLDPRICE);
+		$this->additional_cost = (float)Configuration::get(Fasardixml::PREF_ADDITIONAL_COST, Fasardixml::DEFAULT_ADDITIONAL_COST);
+		$this->use_highprice = (bool)Configuration::get(Fasardixml::PREF_USE_HIGHPRICE, Fasardixml::DEFAULT_USE_HIGHPRICE);
+		$this->use_combinations = (bool)Configuration::get(Fasardixml::PREF_USE_COMBINATIONS, Fasardixml::DEFAULT_USE_COMBINATIONS);
 
 		// TODO Check database if there is pending job and if yes load it.
 		// TODO If no pending job was found create new job.
@@ -97,49 +150,248 @@ class FasardiXmlImport
 		 * @todo Each job can be stopped and restored (based on database record).
 		 */
 	}
+
+	/**
+	 * Creates multi-language field.
+	 * 
+	 * @internal Use {@see create_language_field} instead.
+	 *
+	 * @since 1.0.0
+	 * 
+	 * @param string $field
+	 * @return array
+	 */
+	protected function create_multi_language_field($field) {
+		$languages = Language::getLanguages(false);
+		$res = array();
+
+		foreach ($languages as $lang) {
+			$res[$lang['id_lang']] = $field;
+		}
+
+		return $res;
+	}
+
+	/**
+	 * Creates single-language field (with the default language).
+	 * 
+	 * @internal Use {@see create_language_field} instead.
+	 *
+	 * @since 1.0.0
+	 * 
+	 * @global integer $default_lang_id
+	 * @param string $field
+	 * @return array
+	 */
+	protected function create_single_language_field($field) {
+		global $default_lang_id;
+
+		return array($default_lang_id => $field);
+	}
+
+	/**
+	 * Creates single/multi-language field.
+	 *
+	 * Descision if single- or multi- language field should be used is 
+	 * based on value of global `$create_multilang_fields` variable.
+	 *
+	 * @since 1.0.0
+	 * @global boolean $create_multilang_fields
+	 * @param string $field
+	 * @return array
+	 */
+	protected function create_language_field($field) {
+		global $create_multilang_fields;
+
+		if ($create_multilang_fields === true) {
+			return create_multi_language_field($field);
+		}
+
+		return create_single_language_field($field);
+	}
+
+	/**
+	 * Parse string with names of categories.
+	 *
+	 * Missing categories will be created.
+	 *
+	 * @since 1.0.0
+	 * @param string $categories Comma-separated list of names of categories.
+	 * @param integer $default_category ID of the default category.
+	 * @return array IDs of categories. 
+	 */
+	protected function import_categories($categories, $default_category) {
+		$ret = array();
+		$ret[] = $default_category;
+		$_categories = array_unique(split(',', $categories));
+
+		foreach ($_categories as $_category) {
+			$category = new Category();
+			$category->name = create_single_language_field($_category);
+			$category->link_rewrite = create_single_language_field(Tools::link_rewrite($_category));
+			//$category->description = create_single_language_field('');
+			$category->active = 1;
+			$category->id_parent = (int) $default_category_id;
+			$category->add();
+
+			if (isset($category->id)) {
+				if (!empty($category->id)) {
+					$ret[] = $category->id;
+				}
+			}
+		}
+
+		return $ret;
+	}
+
+	/**
+	 * Saves (import) images.
+	 * @since 1.0.0
+	 * @param integer $product_id
+	 * @param SimpleXMLElement $imgs
+	 * @return array Returns IDs of new images.
+	 * 
+	 * @todo Import images!
+	 * @todo Returns array such this `array('default' => 12, 'categories' => array(12,24,34,35))`!
+	 */
+	function import_images($product_id, $imgs) {
+		foreach ($imgs->img as $img_url) {
+			if (empty($img_url)) {
+				continue;
+			}
+
+			//$img_url = $img;
+			//echo "$img_url<br/>";
+			$image = new Image();
+			$image->id_product = $product_id;
+		}
+	}
+
+	/**
+	 * Execute import.
+	 * @since 1.0.0
+	 */
+	public function execute() {
+		$this->download_feed();
+		$this->parse_products();
+	}
+
+	/**
+	 * Download and save XML feed.
+	 * 
+	 * @since 1.0.0
+	 * @throws Exception whenever error occured during downloading or saving.
+	 */
+	public function download_feed() {
+		$this->feed_filename = $this->docs_path.'/'.date('Ymdhis').'.xml';
+		$context = stream_context_create(array('http' => array('timeout' => 1)));
+		$feed_str = file_get_contents($this->feed_url, 0, $context);
+
+		if ($feed_str === false || empty($feed_str)) {
+			throw new Exception('Error occured while downloading the Fasardi feed!');
+		}
+
+		$res = file_put_contents($this->feed_filename, $feed_str);
+
+		if ($res === false) {
+			throw new Exception('Error occured while saving imported XML file!');
+		}
+
+		$this->feed = new DOMDocument();
+		$this->feed->load($this->feed_filename);
+	}
+
+	/**
+	 * Parse products from feeds.
+	 *
+	 * This should ends with array full of products that are ready to be saved in DB.
+	 *
+	 * @since 1.0.0
+	 */
+	public function parse_products() {
+		$this->products = array();
+		$offers = $this->feed->getElementsByTagName('offer');
+
+
+		foreach ($offers as $offer) {
+echo '<pre>';var_dump($offer);exit();
+
+
+			// Basic properties
+			$product = array(
+				'id'       => $offer->id,
+				'name'     => $offer->name,
+				'url'      => $offer->url,
+				'desc'     => $offer->desc,
+				'cat'      => $offer->cat,
+				'price'    => (float)$offer->price,
+				'oldprice' => (float)$offer->oldprice,
+				'attrs'    => array(),
+				'imgs'     => array(),
+				'sizes'    => array(),
+				'promoted' => (bool)$offer->isPromoted,
+			);
+
+			// Price
+			if ($this->use_highprice === true) {
+				if ($product['oldprice'] >= $product['price']) {
+					$product['price'] = $product['oldprice'];
+				}
+			} elseif ($this->use_oldprice === true && $product['oldprice'] > 0) {
+				$product['price'] = $product['oldprice'];
+			}
+			unset($product['oldprice']);
+
+			// Attributes
+			echo '<pre>';
+			//var_dump($offer->attrs);
+			foreach ($offer->attrs as $attr) {
+				var_dump($attr);
+				echo $offer->attrs[0]->__toString();
+			}
+			exit();
+
+			// Images
+
+			// Sizes
+			if (!empty($offer->sizes)) {
+				$product['sizes'] = exploded(',', $offer->sizes);
+			}
+
+			// Save product
+			if ($this->use_combinations === true) {
+				// Combinations are used...
+				if (array_key_exists($product['name'], $this->products)) {
+					// Is a combination of existing product
+					if (!array_key_exists('combinations', $this->products[$product['name']])) {
+						$this->products[$product['name']]['combinations'] = array();
+					}
+
+					$this->products[$product['name']]['combinations'] = array();
+					$this->products[$product['name']]['combinations'][] = $product;
+				} else {
+					// Is a unique product
+					$this->products[$product['name']] = $product;
+				}
+			} else {
+				// Combinations are not used...
+				$this->products[] = $product;
+			}
+		}
+
+		unset($this->feed);
+	}
 }
 
 /**
  * @var FasardiXmlImport $importer
  */
-// TODO $importer = new FasardiXmlImport();
-// TODO $importer->executeJobQueue();
-
-
-
-
-
-/**
- * @since 1.0.0
- * @var string $feed_filename
- * /
-$feed_filename = $docs_path.'/'.date('Ymdhis').'.xml';
-*/
-
-/**
- * @var string $feed
- * /
-$feed = '';
-*/
-
-/**
- * Download and save feed.
- * /
-$context = stream_context_create(array('http' => array('timeout' => 1)));
-$feed = file_get_contents($feed_url, 0, $context);
-if ($feed === false) {
-	die('Error occured while downloading the Fasardi feed!');
-}
-
-$res = file_put_contents($feed_filename, $feed);
-if ($res === false) {
-	die('Error occured while saving imported XML file!');
-}
-$html = str_replace('<', '&lt;', $feed);              //[!]
-$html = str_replace('>', '&gt;', $html);              //[!]
-echo "<code>$feed_filename</code><br>";               //[!]
-echo "<pre>$html</pre>";                              //[!]
-*/
+$importer = new FasardiXmlImport();
+$importer->execute();
+echo '<pre>';
+var_dump($importer);
+echo '</pre>';
+exit();
 
 /*
 <offer>
@@ -165,135 +417,14 @@ ROZMIARY: S  M  L  XL  XXL</desc>
 </offer>
 */
 
-/**
- * Creates multi-language field.
- * 
- * @internal Use {@see create_language_field} instead.
- *
- * @since 1.0.0
- * 
- * @param string $field
- * @return array
- */
-function create_multi_language_field($field) {
-	$languages = Language::getLanguages(false);
-	$res = array();
-
-	foreach ($languages as $lang) {
-		$res[$lang['id_lang']] = $field;
-	}
-
-	return $res;
+/*
+$_cats = array();
+foreach ($feed->cat as $cat) {
+    $_cats[] = $cat;
 }
-
-/**
- * Creates single-language field (with the default language).
- * 
- * @internal Use {@see create_language_field} instead.
- *
- * @since 1.0.0
- * 
- * @global integer $default_lang_id
- * @param string $field
- * @return array
- */
-function create_single_language_field($field) {
-	global $default_lang_id;
-
-	return array($default_lang_id => $field);
-}
-
-/**
- * Creates single/multi-language field.
- *
- * Descision if single- or multi- language field should be used is 
- * based on value of global `$create_multi_language_fields` variable.
- *
- * @since 1.0.0
- * @global boolean $create_multi_language_fields
- * @param string $field
- * @return array
- */
-function create_language_field($field) {
-	global $create_multi_language_fields;
-
-	if ($create_multi_language_fields === true) {
-		return create_multi_language_field($field);
-	}
-
-	return create_single_language_field($field);
-}
-
-/**
- * Parse string with names of categories.
- *
- * Missing categories will be created.
- *
- * @since 1.0.0
- * @param string $categories Comma-separated list of names of categories.
- * @param integer $default_category ID of the default category.
- * @return array IDs of categories. 
- */
-function import_categories($categories, $default_category) {
-	$ret = array();
-	$ret[] = $default_category;
-	$_categories = array_unique(split(',', $categories));
-
-	foreach ($_categories as $_category) {
-		$category = new Category();
-		$category->name = create_single_language_field($_category);
-		$category->link_rewrite = create_single_language_field(Tools::link_rewrite($_category));
-		//$category->description = create_single_language_field('');
-		$category->active = 1;
-		$category->id_parent = (int) $default_category_id;
-		$category->add();
-
-		if (isset($category->id)) {
-			if (!empty($category->id)) {
-				$ret[] = $category->id;
-			}
-		}
-	}
-
-	return $ret;
-}
-
-/**
- * Saves (import) images.
- * @since 1.0.0
- * @param integer $product_id
- * @param SimpleXMLElement $imgs
- * @return array Returns IDs of new images.
- * 
- * @todo Import images!
- * @todo Returns array such this `array('default' => 12, 'categories' => array(12,24,34,35))`!
- */
-function import_images($product_id, $imgs) {
-	foreach ($imgs->img as $img_url) {
-		if (empty($img_url)) {
-			continue;
-		}
-
-		//$img_url = $img;
-		//echo "$img_url<br/>";
-		$image = new Image();
-		$image->id_product = $product_id;
-	}
-}
-
-/**
- * @var SimpleXMLElement $feed
- */
-$feed = new SimpleXMLElement($feed_url, null, true);
-
-/*[!]*/$_cats = array();
-/*[!]*/foreach ($feed->cat as $cat) {
-/*[!]*/    $_cats[] = $cat;
-/*[!]*/}
-/*[!]*/echo '<pre>'.join(',', $_cats).'</pre>';
-
-/*[!]*/echo '<pre>'.join(',', $feed->cat).'</pre>';
-exit();
+echo '<pre>'.join(',', $_cats).'</pre>';
+echo '<pre>'.join(',', $feed->cat).'</pre>';
+*/
 
 /*[!]*/echo '<ul>';
 
