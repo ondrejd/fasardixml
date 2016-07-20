@@ -28,6 +28,7 @@ class FasardiXmlImport
 {
 	/**
 	 * Holds exchange rate between PLN and CZK.
+	 *
 	 * @since 1.0.0
 	 * @var float
 	 */
@@ -35,6 +36,7 @@ class FasardiXmlImport
 
 	/**
 	 * Holds URL of Fasardi XML feed.
+	 *
 	 * @since 1.0.0
 	 * @var string $feed_url
 	 */
@@ -42,6 +44,7 @@ class FasardiXmlImport
 
 	/**
 	 * Holds path of `docs\xml_import` folder.
+	 *
 	 * @since 1.0.0
 	 * @var string $docs_path 
 	 */
@@ -49,36 +52,48 @@ class FasardiXmlImport
 
 	/**
 	 * ID of default language.
+	 *
+	 * @since 1.0.0
 	 * @var integer $default_lang_id
 	 */
 	protected $default_lang_id;
 
 	/**
 	 * ID of the default category.
+	 *
+	 * @since 1.0.0
 	 * @var integer $default_category_id
 	 */
 	protected $default_category_id;
 
 	/**
 	 * Create multi-language fileds filled for all used languages or only for the default one?
+	 *
+	 * @since 1.0.0
 	 * @var boolean $create_multilang_fields
 	 */
 	protected $create_multilang_fields;
 
 	/**
 	 * Value for onstock property for imported products.
+	 *
+	 * @since 1.0.0
 	 * @var int $default_onstock
 	 */
 	protected $default_onstock;
 
 	/**
 	 * TRUE if old price should be used instead of new one for imported products.
+	 *
+	 * @since 1.0.0
 	 * @var boolean $use_oldprice
 	 */
 	protected $use_oldprice;
 
 	/**
 	 * Preference with additional shipping cost which should be added to price of imported products.
+	 *
+	 * @since 1.0.0
 	 * @var float $additional_cost
 	 */
 	protected $additional_cost;
@@ -91,6 +106,8 @@ class FasardiXmlImport
 
 	/**
 	 * TRUE if create combinations from same products that differ just by color.
+	 *
+	 * @since 1.0.0
 	 * @var boolean $use_combinations
 	 */
 	protected $use_combinations;
@@ -98,6 +115,7 @@ class FasardiXmlImport
 	/**
 	 * Holds name of file in which is downloaded feed storred.
 	 * This property is filled in {@see FasardiXmlImport::download_feed}.
+	 *
 	 * @since 1.0.0
 	 * @var string $feed_filename
 	 */
@@ -106,6 +124,8 @@ class FasardiXmlImport
 	/**
 	 * Contents of the XML feed.
 	 * This is filled in {@see FasardiXmlImport::download_feed} or {@see FasardiXmlImport::load_feed_from_url}
+	 *
+	 * @since 1.0.0
 	 * @var DOMDocument $feed
 	 */
 	protected $feed;
@@ -113,9 +133,19 @@ class FasardiXmlImport
 	/**
 	 * Array with products parsed from feed.
 	 * This is produced by {@see FasardiXmlImport::parse_products}.
+	 *
+	 * @since 1.0.0
 	 * @var array $products
 	 */
 	protected $products = array();
+
+	/**
+	 * Array with currently parsed product.
+	 *
+	 * @since 1.0.0
+	 * @var array $product
+	 */
+	protected $product = array();
 
 	/**
 	 * Constructor.
@@ -310,78 +340,159 @@ class FasardiXmlImport
 	 */
 	public function parse_products() {
 		$this->products = array();
+		/**
+		 * @var DOMNodeList $offers
+		 */
 		$offers = $this->feed->getElementsByTagName('offer');
 
-
 		foreach ($offers as $offer) {
-
-
-
-			// Basic properties
-			$product = array(
-				'id'       => $offer->getElementsByTagName('id')->item(0)->nodeValue,
-				'name'     => $offer->getElementsByTagName('name')->item(0)->nodeValue,
-				'url'      => $offer->getElementsByTagName('url')->item(0)->nodeValue,
-				'desc'     => $offer->getElementsByTagName('desc')->item(0)->nodeValue,
-				'cat'      => $offer->getElementsByTagName('cat')->item(0)->nodeValue,
-				'price'    => (float)$offer->getElementsByTagName('price')->item(0)->nodeValue,
-				'oldprice' => (float)$offer->getElementsByTagName('oldprice')->item(0)->nodeValue,
-				'attrs'    => array(),
-				'imgs'     => array(),
-				'sizes'    => array(),
-				'promoted' => (bool)$offer->getElementsByTagName('isPromoted')->item(0)->nodeValue,
-			);
-
-			// Price
-			if ($this->use_highprice === true) {
-				if ($product['oldprice'] >= $product['price']) {
-					$product['price'] = $product['oldprice'];
-				}
-			} elseif ($this->use_oldprice === true && $product['oldprice'] > 0) {
-				$product['price'] = $product['oldprice'];
-			}
-			unset($product['oldprice']);
-
-
-echo '<pre>';var_dump($offer->getElementsByTagName('attrs')->item(0)->childNodes);exit();
-			// Attributes
-			echo '<pre>';
-			//var_dump($offer->attrs);
-			foreach ($offer->attrs as $attr) {
-				var_dump($attr);
-				echo $offer->attrs[0]->__toString();
-			}
-			exit();
-
-			// Images
-
-			// Sizes
-			if (!empty($offer->sizes)) {
-				$product['sizes'] = exploded(',', $offer->sizes);
-			}
-
-			// Save product
-			if ($this->use_combinations === true) {
-				// Combinations are used...
-				if (array_key_exists($product['name'], $this->products)) {
-					// Is a combination of existing product
-					if (!array_key_exists('combinations', $this->products[$product['name']])) {
-						$this->products[$product['name']]['combinations'] = array();
-					}
-
-					$this->products[$product['name']]['combinations'] = array();
-					$this->products[$product['name']]['combinations'][] = $product;
-				} else {
-					// Is a unique product
-					$this->products[$product['name']] = $product;
-				}
-			} else {
-				// Combinations are not used...
-				$this->products[] = $product;
-			}
+			$this->parse_product($offer);
 		}
 
 		unset($this->feed);
+	}
+
+	/**
+	 * Parse single product from `offer` element.
+	 *
+	 * @since 1.0.0
+	 * @param DOMElement $elm
+	 */
+	protected function parse_product(DOMElement $elm) {
+		// Basic properties
+		$this->product = array(
+			'id'       => $elm->getElementsByTagName('id')->item(0)->nodeValue,
+			'name'     => $elm->getElementsByTagName('name')->item(0)->nodeValue,
+			'url'      => $elm->getElementsByTagName('url')->item(0)->nodeValue,
+			'desc'     => $elm->getElementsByTagName('desc')->item(0)->nodeValue,
+			'cat'      => $elm->getElementsByTagName('cat')->item(0)->nodeValue,
+			'price'    => (float)$elm->getElementsByTagName('price')->item(0)->nodeValue,
+			'oldprice' => (float)$elm->getElementsByTagName('oldprice')->item(0)->nodeValue,
+			'attrs'    => array(),
+			'imgs'     => array(),
+			'sizes'    => array(),
+			'promoted' => (bool)$elm->getElementsByTagName('isPromoted')->item(0)->nodeValue,
+		);
+
+		// Price
+		if ($this->use_highprice === true) {
+			if ($this->product['oldprice'] >= $this->product['price']) {
+				$this->product['price'] = $this->product['oldprice'];
+			}
+		} elseif ($this->use_oldprice === true && $this->product['oldprice'] > 0) {
+			$this->product['price'] = $this->product['oldprice'];
+		}
+		unset($this->product['oldprice']);
+
+		$this->parse_product_attributes($elm);
+		$this->parse_product_images($elm);
+
+echo '<pre>';
+
+
+var_dump($this->product);exit();
+
+		// Sizes
+		if (!empty($elm->sizes)) {
+			$product['sizes'] = exploded(',', $elm->sizes);
+		}
+
+		// Save product
+		if ($this->use_combinations === true) {
+			// Combinations are used...
+			if (array_key_exists($product['name'], $this->products)) {
+				// Is a combination of existing product
+				if (!array_key_exists('combinations', $this->products[$product['name']])) {
+					$this->products[$product['name']]['combinations'] = array();
+				}
+
+				$this->products[$product['name']]['combinations'] = array();
+				$this->products[$product['name']]['combinations'][] = $product;
+			} else {
+				// Is a unique product
+				$this->products[$product['name']] = $product;
+			}
+		} else {
+			// Combinations are not used...
+			$this->products[] = $product;
+		}
+	}
+
+	/**
+	 * ...
+	 *
+	 * @since 1.0.0
+	 * @param DOMElement $elm
+	 */
+	protected function parse_product_attributes(DOMElement $elm) {
+		/**
+		 * @var DOMNodeList $attrs
+		 */
+		$attrs = $elm->getElementsByTagName('attrs')->item(0)->getElementsByTagName('attr');
+
+		for ($i = 0; $i < $attrs->length; $i++) {
+			$this->parse_product_attribute($attrs->item($i));
+		}
+	}
+
+	/**
+	 * ...
+	 *
+	 * @since 1.0.0
+	 * @param DOMElement $elm
+	 */
+	protected function parse_product_attribute(DOMElement $elm) {
+		if ($elm->hasAttribute('name') !== true) {
+			return;
+		}
+
+		switch (strtolower($elm->getAttribute('name'))) {
+			case 'kolor':
+				$this->product['attrs']['color'] = trim($elm->textContent);
+				break;
+
+			default:
+				// XXX Log unprocessed attribute.
+				break;
+		}
+	}
+
+	/**
+	 * ...
+	 *
+	 * @since 1.0.0
+	 * @param DOMElement $elm
+	 */
+	private function parse_product_images(DOMElement $elm) {
+		/**
+		 * @var DOMNodeList $imgs
+		 */
+		$imgs = $elm->getElementsByTagName('imgs')->item(0)->getElementsByTagName('img');
+
+		for ($i = 0; $i < $imgs->length; $i++) {
+			$this->parse_product_image($imgs->item($i));
+		}
+	}
+
+	/**
+	 * ...
+	 *
+	 * @since 1.0.0
+	 * @param DOMElement $elm
+	 */
+	private function parse_product_image(DOMElement $elm) {
+		$default = $elm->hasAttribute('default');
+		$img_url = $elm->textContent;
+
+		if (empty($img_url) || filter_var($img_url, FILTER_VALIDATE_URL) === false) {
+			// XXX Log bad image element (empty and bad url are separate issues!)
+			return;
+		}
+
+		$this->product['imgs'][] = array(
+			'default' => $default,
+			'url' => $img_url,
+		);
 	}
 }
 
